@@ -1,61 +1,84 @@
+
 import streamlit as st
 import pandas as pd
 import re
 
 # إعداد الصفحة
-st.set_page_config(page_title="AccTables – Smart Accounting Assistant", layout="centered")
+st.set_page_config(page_title="AccTables – Smart Transaction Classifier", layout="centered")
 
-# عنوان المشروع
-st.title("📊 AccTables – Smart Accounting Assistant")
+st.title("📘 AccTables – Smart Accounting Assistant")
 
-# شرح مختصر
 st.markdown("""
-Welcome to AccTables – your smart assistant for building accounting tables.
-
-Write a simple transaction like:  
-`Purchased furniture for 10,000 AED`  
-`Took a bank loan of 15,000`  
-`Owner invested 5,000 AED`
-
-The system will detect whether it's an **Asset**, **Liability**, or **Equity**.
+Type your transaction below using simple natural language.  
+The system will auto-classify the transaction, determine debit and credit accounts, and show the journal entry.
 """)
 
-# تصنيف المعاملة
+# الكلمات المفتاحية حسب التصنيف
+asset_keywords = ["purchase", "purchases", "buy", "bought", "equipment", "furniture", "inventory", "vehicle", "land"]
+liability_keywords = ["loan", "borrowed", "payable", "debt"]
+equity_keywords = ["invested", "capital", "owner", "contribution"]
+
+# تحليل الجملة لتحديد نوع الحسابات
 def classify_transaction(text):
     text = text.lower()
-    if any(word in text for word in ["purchase", "equipment", "furniture", "asset", "bought"]):
-        return "Asset"
-    elif any(word in text for word in ["loan", "payable", "borrowed", "debt"]):
-        return "Liability"
-    elif any(word in text for word in ["capital", "invested", "owner"]):
-        return "Equity"
+    if any(word in text for word in asset_keywords):
+        debit = "Asset"
+    elif any(word in text for word in liability_keywords):
+        debit = "Liability"
+    elif any(word in text for word in equity_keywords):
+        debit = "Equity"
     else:
-        return "Unknown"
+        debit = "Unknown"
 
-# استخراج المبلغ
+    # نفترض أن الدفع نقدًا إلا إذا وُجد شيء ثاني
+    if "cash" in text or "paid" in text:
+        credit = "Cash"
+    elif "loan" in text or "borrowed" in text:
+        credit = "Loan"
+    elif "owner" in text or "capital" in text or "invested" in text:
+        credit = "Owner's Equity"
+    else:
+        credit = "Unknown"
+
+    return debit, credit
+
+# استخراج المبلغ من النص
 def extract_amount(text):
     match = re.search(r'\d+(?:,\d{3})*(?:\.\d+)?', text)
     return float(match.group().replace(',', '')) if match else 0
 
-# حفظ البيانات المؤقتة
-if 'transactions' not in st.session_state:
-    st.session_state.transactions = []
+# تخزين القيد
+if "entries" not in st.session_state:
+    st.session_state.entries = []
 
-# حقل الإدخال
-transaction = st.text_input("✍️ Enter your transaction below:")
-
-# زر الإضافة
-if st.button("➕ Add Transaction") and transaction:
-    category = classify_transaction(transaction)
-    amount = extract_amount(transaction)
-    st.session_state.transactions.append({
-        "Description": transaction,
-        "Category": category,
+# إدخال المستخدم
+text_input = st.text_input("✍️ Enter a transaction:")
+if st.button("➕ Analyze and Add") and text_input:
+    debit, credit = classify_transaction(text_input)
+    amount = extract_amount(text_input)
+    st.session_state.entries.append({
+        "Description": text_input,
+        "Account": debit,
+        "Type": "Debit",
         "Amount": amount
     })
+    st.session_state.entries.append({
+        "Description": text_input,
+        "Account": credit,
+        "Type": "Credit",
+        "Amount": amount
+    })
+    st.success("✅ Transaction added and classified!")
 
-# عرض الجدول الحالي
-if st.session_state.transactions:
-    df = pd.DataFrame(st.session_state.transactions)
-    st.subheader("📋 Transactions Recorded")
+# عرض القيود
+if st.session_state.entries:
+    st.subheader("📋 Journal Entries")
+    df = pd.DataFrame(st.session_state.entries)
     st.dataframe(df)
+
+    # تنزيل الملف
+    from io import BytesIO
+    output = BytesIO()
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        df.to_excel(writer, index=False, sheet_name='Journal')
+    st.download_button("📤 Download as Excel", data=output.getvalue(), file_name="journal.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
